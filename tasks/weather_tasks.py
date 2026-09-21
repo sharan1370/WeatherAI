@@ -52,6 +52,9 @@ IMPORTANT RULES:
 
 - If the question is ambiguous, clearly explain
   what information is available.
+- If a weather tool returns a service error or rate-limit
+  message, do not call that tool again. Explain the
+  temporary service problem clearly and stop.
 """,
 
     expected_output="""
