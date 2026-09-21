@@ -179,6 +179,13 @@ def get_weather_answer(question):
 
                 answer = str(result)
 
+                if "rate-limit" in answer.lower() or "rate limiting" in answer.lower():
+                    answer = (
+                        "**Open-Meteo is temporarily rate-limiting this deployment.**\n\n"
+                        "Please wait a few minutes before trying again. "
+                        "The weather service is currently unavailable for this server."
+                    )
+
             except Exception as error:
 
                 answer = (
