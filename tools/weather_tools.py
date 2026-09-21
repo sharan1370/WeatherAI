@@ -1,4 +1,5 @@
 import requests
+import time
 
 from crewai.tools import tool
 
@@ -11,12 +12,24 @@ WEATHER_URL = (
     "https://api.open-meteo.com/v1/forecast"
 )
 
+CURRENT_CACHE_TTL_SECONDS = 300
+_current_weather_cache = {}
+OPEN_METEO_HEADERS = {
+    "User-Agent": "WeatherAI/1.0 (weather assistant)",
+}
+
 
 @tool("Current Weather Tool")
 def get_current_weather(location: str) -> str:
     """
     Get current weather for a city using Open-Meteo.
     """
+
+    cache_key = location.strip().lower()
+    cached_result = _current_weather_cache.get(cache_key)
+
+    if cached_result and time.monotonic() - cached_result[0] < CURRENT_CACHE_TTL_SECONDS:
+        return cached_result[1]
 
     # --------------------------------------------------
     # 1. Convert city name to coordinates
@@ -34,6 +47,7 @@ def get_current_weather(location: str) -> str:
             GEOCODING_URL,
             params=geocoding_params,
             timeout=20,
+            headers=OPEN_METEO_HEADERS,
         )
 
         geo_response.raise_for_status()
@@ -104,14 +118,20 @@ def get_current_weather(location: str) -> str:
             WEATHER_URL,
             params=weather_params,
             timeout=20,
+            headers=OPEN_METEO_HEADERS,
         )
+
+        if weather_response.status_code == 429:
+            return (
+                "Open-Meteo is temporarily rate-limiting requests from the "
+                "deployment server. Please wait a few minutes and try again."
+            )
         
         weather_response.raise_for_status()
 
         weather_data = (
             weather_response.json()
         )
-        print(weather_data)
     except requests.RequestException as e:
         return (
             f"Weather service error: {e}"
@@ -197,4 +217,7 @@ DATA SOURCE:
 Open-Meteo
 """
 
-    return result.strip()
+    result = result.strip()
+    _current_weather_cache[cache_key] = (time.monotonic(), result)
+
+    return result
