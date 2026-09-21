@@ -1,161 +1,34 @@
 # WeatherAI
 
-WeatherAI is a Python weather assistant that combines CrewAI, Groq, Streamlit, and Open-Meteo. A user asks a natural-language weather question, a CrewAI agent selects the correct weather tool, the tool retrieves real API data, and Groq explains the result.
+WeatherAI is a production-minded Python prototype for natural-language weather lookup. It combines a Streamlit interface, a CrewAI orchestration layer, Open-Meteo data services, and Groq inference using `openai/gpt-oss-20b`.
 
-The project supports:
+The system separates factual retrieval from language generation: Open-Meteo provides the weather values, while Groq turns the retrieved data into a concise answer. This prevents the model from inventing numerical weather information.
 
-- Current weather
-- Future forecasts from tomorrow through 16 days
-- Recent historical weather
-- Older historical weather from the Open-Meteo ERA5 archive
-- A Streamlit chat interface
-- A command-line interface
+### Capabilities
 
-## Table Of Contents
+- Current conditions for a named location
+- Forecasts from tomorrow through 16 days
+- Recent historical weather using past hourly observations
+- Older historical weather using the ERA5 archive
+- Streamlit chat UI with session history and example prompts
+- CLI workflow for terminal-based use
+- Direct smoke tests for configuration, Groq, and weather APIs
 
-1. [A-Z Guide](#a-z-guide)
-2. [Architecture](#architecture)
-3. [Requirements](#requirements)
-4. [Installation](#installation)
-5. [Configuration](#configuration)
-6. [Run The Application](#run-the-application)
-7. [How A Request Works](#how-a-request-works)
-8. [Weather Tools](#weather-tools)
-9. [Project Structure](#project-structure)
-10. [Testing](#testing)
-11. [Deployment](#deployment)
-12. [Troubleshooting](#troubleshooting)
-13. [Limitations](#limitations)
+## Contents
 
-## A-Z Guide
-
-### A - Application
-
-The main user interface is `app.py`, a Streamlit chat application. `main.py` provides a terminal alternative.
-
-### B - Backend APIs
-
-The weather data backend is Open-Meteo. It provides geocoding, current weather, forecasts, recent past weather, and ERA5 historical data.
-
-### C - CrewAI
-
-CrewAI manages the agent and task. `crew/weather_crew.py` creates one sequential crew containing the weather agent and weather task.
-
-### D - Data Sources
-
-The project uses:
-
-- Open-Meteo geocoding API for city-to-coordinate lookup
-- Open-Meteo forecast API for current and future weather
-- Open-Meteo forecast API with `past_days` for recent historical weather
-- Open-Meteo ERA5 archive API for older historical weather
-- Groq for natural-language explanation
-
-### E - Environment Variables
-
-The required secret is `GROQ_API_KEY`. It is loaded from `.env` using `python-dotenv`. The application model is fixed in code to `openai/gpt-oss-20b`.
-
-### F - Forecasts
-
-The forecast tool accepts a requested number of days and limits it to 1 through 16. It skips today's row and returns future daily values.
-
-### G - Groq
-
-CrewAI uses the LiteLLM-compatible identifier `groq/openai/gpt-oss-20b`. The underlying Groq model is exactly `openai/gpt-oss-20b`.
-
-### H - Historical Weather
-
-Historical requests are validated, geocoded, and routed to either recent past data or the ERA5 archive based on the requested date range.
-
-### I - Installation
-
-Install the dependencies from `requirements.txt` inside a Python virtual environment. Details are in [Installation](#installation).
-
-### J - JSON APIs
-
-The weather tools call JSON endpoints with `requests`, check HTTP errors, read the response JSON, and format the result as text for the agent.
-
-### K - Knowledge Boundary
-
-The agent is instructed not to invent weather values or rely on internal model knowledge when a weather value is requested. Numerical values must come from a weather tool.
-
-### L - LLM Compatibility
-
-CrewAI's installed LiteLLM path can add an internal `cache_breakpoint` field that Groq rejects. `agents/weather_agents.py` defines `GroqLLM`, which removes that internal field before the request is sent.
-
-### M - Model
-
-The only application model is:
-
-```text
-openai/gpt-oss-20b
-```
-
-Do not replace it with another model unless the agent configuration and user requirement are intentionally changed together.
-
-### N - Natural Language
-
-Users do not need to call tools directly. They can ask questions such as `What is the weather in Chennai now?` or `What was the weather in London on 2020-01-15?`.
-
-### O - Open-Meteo
-
-Open-Meteo supplies the factual weather data. It does not require an API key for the calls used by this project.
-
-### P - Python
-
-The project targets Python 3.12 or newer.
-
-### Q - Questions
-
-The agent classifies questions into current, forecast, or historical weather before calling a tool.
-
-### R - Routing
-
-Routing is performed by the CrewAI agent according to the instructions in `tasks/weather_tasks.py`.
-
-### S - Streamlit
-
-The Streamlit UI stores the conversation in `st.session_state`, displays example questions, and sends each question to `weather_crew.kickoff(...)`.
-
-### T - Tools
-
-The three registered tools are:
-
-- `Current Weather Tool`
-- `Weather Forecast Tool`
-- `Historical Weather Tool`
-
-### U - User Flow
-
-The user enters a question, waits while the crew executes, and receives a formatted response containing the relevant location, date or time, measurements, and data source.
-
-### V - Validation
-
-The tools validate locations, date formats, date order, future historical dates, and forecast day limits. Network requests use timeouts and return readable error strings.
-
-### W - Weather Values
-
-Depending on the request, the response can include temperature, feels-like temperature, humidity, wind, gusts, precipitation, rain, showers, cloud cover, visibility, pressure, UV index, sunrise, sunset, and weather code.
-
-### X - External Services
-
-The application needs internet access for both Groq and Open-Meteo. A local model server is not required.
-
-### Y - Your Questions
-
-Useful examples:
-
-```text
-What is the weather in Chennai now?
-Will it rain tomorrow in Chennai?
-Give me the 7 day forecast for Chennai.
-What was the weather in Chennai yesterday?
-What was the weather in Chennai on 2020-01-15?
-```
-
-### Z - Zero Fabrication
-
-When an API fails or a location cannot be found, the tool returns an error message. The agent must not fill missing values with guesses.
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Run The Application](#run-the-application)
+- [Request Lifecycle](#request-lifecycle)
+- [Weather Tools](#weather-tools)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [Security Notes](#security-notes)
+- [Limitations](#limitations)
 
 ## Architecture
 
@@ -181,6 +54,19 @@ flowchart TD
     Groq --> Answer[Natural-language answer]
     Answer --> UI
     Answer --> CLI
+
+    classDef user fill:#FFF4CC,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef app fill:#DDEBFF,stroke:#2563EB,color:#172554,stroke-width:2px;
+    classDef crew fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    classDef tool fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    classDef api fill:#FFE4E6,stroke:#E11D48,color:#881337,stroke-width:2px;
+    classDef output fill:#CCFBF1,stroke:#0F766E,color:#134E4A,stroke-width:2px;
+    class User user;
+    class UI,CLI app;
+    class Crew,Task,Agent,Groq crew;
+    class Current,Forecast,Historical,ToolResult tool;
+    class OpenMeteo api;
+    class Answer output;
 ```
 
 ### Request Sequence
@@ -207,6 +93,8 @@ sequenceDiagram
     L-->>C: Final weather answer
     C-->>F: Crew output
     F-->>U: Display answer
+
+    Note over F,L: The tool result is the source of truth for weather values.
 ```
 
 ### Agent Decision Flow
@@ -222,6 +110,15 @@ flowchart TD
     Forecast --> Explain
     Historical --> Explain
     Explain --> Final[Final answer with source and values]
+
+    classDef input fill:#FEF3C7,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef decision fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    classDef tool fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    classDef output fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+    class Start,Location input;
+    class Type decision;
+    class Current,Forecast,Historical tool;
+    class Explain,Final output;
 ```
 
 ### Historical Data Routing
@@ -237,6 +134,17 @@ flowchart TD
     Recent --> Format[Format historical result]
     Archive --> Format
     Format --> Agent[Return result to CrewAI agent]
+
+    classDef input fill:#FEF3C7,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef validation fill:#FCE7F3,stroke:#DB2777,color:#831843,stroke-width:2px;
+    classDef branch fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    classDef source fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    classDef output fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+    class Request input;
+    class Validate,Error validation;
+    class Valid,Age branch;
+    class Recent,Archive source;
+    class Format,Agent output;
 ```
 
 ### Deployment Shape
@@ -248,6 +156,139 @@ flowchart LR
     CrewAI --> Groq[Groq API]
     CrewAI --> Meteo[Open-Meteo APIs]
     Env[Environment secrets] --> Streamlit
+
+    classDef client fill:#FFF4CC,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef runtime fill:#DDEBFF,stroke:#2563EB,color:#172554,stroke-width:2px;
+    classDef service fill:#FFE4E6,stroke:#E11D48,color:#881337,stroke-width:2px;
+    classDef secret fill:#FCE7F3,stroke:#DB2777,color:#831843,stroke-width:2px;
+    class Browser client;
+    class Streamlit,CrewAI runtime;
+    class Groq,Meteo service;
+    class Env secret;
+```
+
+### Component Relationships
+
+```mermaid
+flowchart LR
+    subgraph Presentation[Presentation Layer]
+        APP[app.py\nStreamlit UI]
+        MAIN[main.py\nCLI]
+    end
+
+    subgraph Orchestration[Orchestration Layer]
+        CREW[crew/weather_crew.py]
+        TASK[tasks/weather_tasks.py]
+        AGENT[agents/weather_agents.py]
+        ADAPTER[GroqLLM\ncache marker adapter]
+    end
+
+    subgraph Domain[Weather Tool Layer]
+        CURRENT[weather_tools.py]
+        FORECAST[forecast_tools.py]
+        HISTORY[historical_tools.py]
+    end
+
+    subgraph External[External Services]
+        GEO[Open-Meteo\nGeocoding]
+        WEATHER[Open-Meteo\nForecast and ERA5]
+        GROQ[Groq API]
+    end
+
+    APP --> CREW
+    MAIN --> CREW
+    CREW --> TASK
+    TASK --> AGENT
+    AGENT --> ADAPTER
+    AGENT --> CURRENT
+    AGENT --> FORECAST
+    AGENT --> HISTORY
+    CURRENT --> GEO
+    FORECAST --> GEO
+    HISTORY --> GEO
+    CURRENT --> WEATHER
+    FORECAST --> WEATHER
+    HISTORY --> WEATHER
+    ADAPTER --> GROQ
+
+    classDef presentation fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+    classDef orchestration fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    classDef domain fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    classDef external fill:#FFE4E6,stroke:#E11D48,color:#881337,stroke-width:2px;
+    class APP,MAIN presentation;
+    class CREW,TASK,AGENT,ADAPTER orchestration;
+    class CURRENT,FORECAST,HISTORY domain;
+    class GEO,WEATHER,GROQ external;
+```
+
+### Failure And Recovery Flow
+
+```mermaid
+flowchart TD
+    Request[User request] --> Crew[Start CrewAI task]
+    Crew --> Location{Location found?}
+    Location -->|No| LocationError[Return location error]
+    Location -->|Yes| Dates{Dates valid?}
+    Dates -->|No| DateError[Return date validation error]
+    Dates -->|Yes| API[Call Open-Meteo]
+    API --> Network{Request successful?}
+    Network -->|No| ServiceError[Return service error]
+    Network -->|Yes| Data[Format weather data]
+    Data --> Model[Groq explains data]
+    Model --> Answer[Display answer]
+    LocationError --> DisplayError[Display readable error]
+    DateError --> DisplayError
+    ServiceError --> DisplayError
+
+    classDef request fill:#FFF4CC,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef process fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+    classDef decision fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    classDef error fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D,stroke-width:2px;
+    classDef success fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    class Request request;
+    class Crew,API,Data,Model,Answer process;
+    class Location,Dates,Network decision;
+    class LocationError,DateError,ServiceError,DisplayError error;
+```
+
+### Data Transformation Pipeline
+
+```mermaid
+flowchart LR
+    Question[Plain-language question] --> Intent[Intent and location]
+    Intent --> Coordinates[Latitude, longitude, timezone]
+    Coordinates --> Params[API request parameters]
+    Params --> JSON[Open-Meteo JSON]
+    JSON --> Formatter[Tool formatter]
+    Formatter --> Evidence[Structured weather evidence]
+    Evidence --> Explanation[Groq explanation]
+    Explanation --> Response[User-facing response]
+
+    classDef question fill:#FFF4CC,stroke:#D97706,color:#78350F,stroke-width:2px;
+    classDef transform fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+    classDef data fill:#D1FAE5,stroke:#059669,color:#064E3B,stroke-width:2px;
+    classDef language fill:#EDE9FE,stroke:#7C3AED,color:#3B0764,stroke-width:2px;
+    class Question question;
+    class Intent,Coordinates,Params,Formatter transform;
+    class JSON,Evidence data;
+    class Explanation,Response language;
+```
+
+### Runtime State Model
+
+```mermaid
+stateDiagram-v2
+    [*] --> Ready
+    Ready --> WaitingForQuestion: App loaded
+    WaitingForQuestion --> Processing: User submits question
+    Processing --> SelectingTool: CrewAI starts task
+    SelectingTool --> CallingWeatherAPI: Tool selected
+    CallingWeatherAPI --> GeneratingAnswer: Data returned
+    CallingWeatherAPI --> Error: API or validation failure
+    GeneratingAnswer --> DisplayingAnswer: Groq response received
+    DisplayingAnswer --> WaitingForQuestion: Continue conversation
+    Error --> WaitingForQuestion: Show readable error
+    WaitingForQuestion --> [*]: App closed
 ```
 
 ## Requirements
